@@ -2,16 +2,16 @@
 #include <iostream>
 #include <math.h>
 
-const int TableXCount = 4;
-const int TableYCount = 4;
+const int TableXCount = 6;
+const int TableYCount = 6;
 const float TableSpacing = 5;
-const int ChefCount = 3;
-const int WaiterCount = 5;
+const int ChefCount = 5;
+const int WaiterCount = 3;
 const float GuestFrequency = 5; // Hz
 const int GuestPartySize = 5;
-const float PlatePreparationTime = 5.0; // sec
+const float PlatePreparationTime = 3.0; // sec
 const float WaiterSpeed = 1.0;
-const float DiningTime = 10.0;
+const float DiningTime = 30.0;
 
 namespace kitchen_explorer {
 
@@ -36,7 +36,7 @@ enum class TableStatus {
 
 enum class ChefStatus {
     Idle,
-    Busy
+    Cooking
 };
 
 enum class WaiterStatus {
@@ -174,7 +174,7 @@ int app(int argc, char *argv[]) {
                 // Assign chef to table
                 if (chef) {
                     chef.add<Table>(table);
-                    chef.add(ChefStatus::Busy);
+                    chef.add(ChefStatus::Cooking);
                     table.add(TableStatus::Assigned);
                 }
             }
@@ -185,7 +185,7 @@ int app(int argc, char *argv[]) {
     // Create plate
     ecs.system("CreatePlate")
         .term<Chef>()
-        .term<ChefStatus>(ChefStatus::Busy)
+        .term<ChefStatus>(ChefStatus::Cooking)
         .term<Plate>(flecs::Wildcard).oper(flecs::Not)
         .each([&](flecs::iter& it, size_t index) {
             auto ecs = it.world();

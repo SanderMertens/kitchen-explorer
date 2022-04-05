@@ -2,16 +2,22 @@
 #include <iostream>
 #include <math.h>
 
-const int TableXCount = 6;
-const int TableYCount = 6;
+const int TableXCount = 5;
+const int TableYCount = 4;
 const float TableSpacing = 5;
-const int ChefCount = 5;
+const int ChefCount = 10;
 const int WaiterCount = 3;
 const float GuestFrequency = 5; // Hz
 const int GuestPartySize = 5;
-const float PlatePreparationTime = 3.0; // sec
+const float PlatePreparationTime = 8.0; // sec
 const float WaiterSpeed = 1.0;
-const float DiningTime = 30.0;
+const float DiningTime = 60.0;
+const float PlateInitialTemperature = 70;
+const float PlateCooldownFactor = 0.01; // deg/sec
+const float PlateTemperatureThreshold = 50;
+const float ColdPlateHappinessPenalty = 0.75;
+const float RoomTemperature = 20;
+const float HappinessCooldown = 0.5;
 
 namespace kitchen_explorer {
 
@@ -54,9 +60,17 @@ struct DistanceFromKitchen {
     float value;
 };
 
+struct Temperature {
+    float value;
+};
+
 struct Position {
     float x;
     float y;
+};
+
+struct Happiness {
+    float value;
 };
 
 int app(int argc, char *argv[]) {
@@ -83,6 +97,12 @@ int app(int argc, char *argv[]) {
 
     ecs.component<DistanceFromKitchen>()
         .member<float, flecs::units::length::Meters>("value");
+
+    ecs.component<Temperature>()
+        .member<float, flecs::units::temperature::Celsius>("value");
+
+    ecs.component<Happiness>()
+        .member<float, flecs::units::Percentage>("value");
 
     // Root scopes
     auto tables = ecs.entity("::tables");
@@ -118,13 +138,13 @@ int app(int argc, char *argv[]) {
     }
 
     // Increase progress tracker (used as timer to insert delays)
-    ecs.system<ProgressTracker>("IncreaseProgressTracker")
+    ecs.system<ProgressTracker>("systems::IncreaseProgressTracker")
         .each([](flecs::iter& it, size_t, ProgressTracker& pt) {
             pt.cur += it.delta_time();
         });
 
     // Guest generator
-    ecs.system("GuestGenerator")
+    ecs.system("systems::GuestGenerator")
         .interval(GuestFrequency)
         .iter([](flecs::iter& it) {
             flecs::entity table;
@@ -145,12 +165,13 @@ int app(int argc, char *argv[]) {
                 for (int i = 0; i < party_size; i ++) {
                     it.world().entity().child_of(table)
                         .add<Guest>();
+                    table.set<Happiness>({100});
                 }
             }
         });
 
     // Assign idle chefs to waiting tables
-    ecs.system("AssignChef")
+    ecs.system("systems::AssignChef")
         .term<Table>()
         .term<TableStatus>(TableStatus::Unassigned)
         .no_staging()
@@ -183,7 +204,7 @@ int app(int argc, char *argv[]) {
         });
 
     // Create plate
-    ecs.system("CreatePlate")
+    ecs.system("systems::CreatePlate")
         .term<Chef>()
         .term<ChefStatus>(ChefStatus::Cooking)
         .term<Plate>(flecs::Wildcard).oper(flecs::Not)
@@ -209,7 +230,7 @@ int app(int argc, char *argv[]) {
         });
 
     // Prepare plate
-    ecs.system<ProgressTracker>("PreparePlate")
+    ecs.system<ProgressTracker>("systems::PreparePlate")
         .term<Chef>()
         .term<Plate>(flecs::Wildcard)
         .each([](flecs::iter& it, size_t index, ProgressTracker& pt) {
@@ -222,16 +243,18 @@ int app(int argc, char *argv[]) {
                 // Add table to plate, marking it ready
                 plate.add<Table>(table);
                 plate.add(PlateStatus::Ready);
+                plate.set<Temperature>({PlateInitialTemperature});
 
                 // Chef is ready for the next plate
                 chef.add(ChefStatus::Idle);
                 chef.remove<Table>(table);
                 chef.remove<Plate>(plate);
+                chef.remove<ProgressTracker>();
             }
         });
 
     // Find idle waiter to pickup plate
-    ecs.system("AssignWaiter")
+    ecs.system("systems::AssignWaiter")
         .term<Plate>()
         .term<Table>(flecs::Wildcard)
         .term<Waiter>(flecs::Wildcard).oper(flecs::Not)
@@ -268,8 +291,28 @@ int app(int argc, char *argv[]) {
             it.world().defer_begin();
         });
 
+    // Happiness cooldown
+    ecs.system<Happiness>("systems::HappinessCooldown")
+        .term<Table>()
+        .term<TableStatus>(TableStatus::Dining).oper(flecs::Not)
+        .each([](flecs::iter& it, size_t, Happiness& h) {
+            h.value -= HappinessCooldown * it.delta_time();
+            if (h.value < 0) {
+                h.value = 0; // not good
+            }
+        });
+
+    // Plate cooldown
+    ecs.system<Temperature>("systems::TemperatureCooldown")
+        .term<Plate>()
+        .each([](flecs::iter& it, size_t, Temperature& t) {
+            t.value -= (t.value - RoomTemperature) 
+                * PlateCooldownFactor
+                * it.delta_time();
+        });
+
     // Waiter walking to kitchen
-    ecs.system<DistanceFromKitchen>("WaiterToKitchen")
+    ecs.system<DistanceFromKitchen>("systems::WaiterToKitchen")
         .term<Waiter>()
         .term<WaiterStatus>(WaiterStatus::WalkingToKitchen)
         .each([](flecs::iter& it, size_t index, DistanceFromKitchen& d) {
@@ -305,7 +348,7 @@ int app(int argc, char *argv[]) {
         });
 
     // Waiter walking to table
-    ecs.system<ProgressTracker, DistanceFromKitchen>("WaiterToTable")
+    ecs.system<ProgressTracker, DistanceFromKitchen>("systems::WaiterToTable")
         .term<Waiter>()
         .term<WaiterStatus>(WaiterStatus::WalkingToTable)
         .each([](flecs::iter& it, size_t index, ProgressTracker &pt, DistanceFromKitchen& d) {
@@ -323,22 +366,30 @@ int app(int argc, char *argv[]) {
                 plate.add(PlateStatus::InUse);
                 table.add(TableStatus::Dining);
                 table.set<ProgressTracker>({0, DiningTime});
+
+                // If plate is cold subtract happiness
+                const Temperature *t = plate.get<Temperature>();
+                if (t->value < PlateTemperatureThreshold) {
+                    Happiness *h = table.get_mut<Happiness>();
+                    h->value -= ColdPlateHappinessPenalty;
+                }
             }
         });
 
     // Guests are leaving
-    ecs.system<ProgressTracker>("GuestsLeaving")
+    ecs.system<ProgressTracker>("systems::GuestsLeaving")
         .term<Table>()
         .term<TableStatus>(TableStatus::Dining)
         .each([](flecs::iter&it, size_t index, ProgressTracker& pt) {
             if (pt.cur >= pt.expire) {
                 flecs::entity table = it.entity(index);
                 it.world().delete_with(it.world().pair(flecs::ChildOf, table));
+                table.remove<Happiness>();
             }
         });
 
     // Table is dining
-    ecs.system<ProgressTracker>("Dine")
+    ecs.system<ProgressTracker>("systems::Dine")
         .term<Table>()
         .term<TableStatus>(TableStatus::Dining)
         .each([](flecs::iter&it, size_t index, ProgressTracker& pt) {

@@ -326,6 +326,17 @@ int app(int argc, char *argv[]) {
             }
         });
 
+    // Guests are leaving
+    ecs.system<ProgressTracker>("GuestsLeaving")
+        .term<Table>()
+        .term<TableStatus>(TableStatus::Dining)
+        .each([](flecs::iter&it, size_t index, ProgressTracker& pt) {
+            if (pt.cur >= pt.expire) {
+                flecs::entity table = it.entity(index);
+                it.world().delete_with(it.world().pair(flecs::ChildOf, table));
+            }
+        });
+
     // Table is dining
     ecs.system<ProgressTracker>("Dine")
         .term<Table>()
@@ -335,6 +346,7 @@ int app(int argc, char *argv[]) {
                 flecs::entity table = it.entity(index);
                 flecs::entity plate = table.get_object<Plate>();
                 table.add(TableStatus::Unoccupied);
+                table.remove<ProgressTracker>();
                 plate.destruct();
             }
         });

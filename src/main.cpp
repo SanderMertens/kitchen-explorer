@@ -2,22 +2,22 @@
 #include <iostream>
 #include <math.h>
 
-const int TableXCount = 5;
+const int TableXCount = 6;
 const int TableYCount = 4;
 const float TableSpacing = 5;
 const int ChefCount = 10;
-const int WaiterCount = 3;
+const int WaiterCount = 4;
 const float GuestFrequency = 5; // Hz
 const int GuestPartySize = 5;
 const float PlatePreparationTime = 8.0; // sec
 const float WaiterSpeed = 1.0;
 const float DiningTime = 60.0;
-const float PlateInitialTemperature = 70;
+const float PlateInitialTemperature = 80;
 const float PlateCooldownFactor = 0.01; // deg/sec
-const float PlateTemperatureThreshold = 50;
-const float ColdPlateHappinessPenalty = 0.75;
+const float PlateTemperatureThreshold = 55;
+const float ColdPlateHappinessPenalty = 0.25;
 const float RoomTemperature = 20;
-const float HappinessCooldown = 0.5;
+const float HappinessCooldown = 0.01;
 
 namespace kitchen_explorer {
 
@@ -36,7 +36,7 @@ enum class PlateStatus {
 enum class TableStatus {
     Unoccupied,
     Unassigned,
-    Assigned,
+    Waiting,
     Dining
 };
 
@@ -165,7 +165,7 @@ int app(int argc, char *argv[]) {
                 for (int i = 0; i < party_size; i ++) {
                     it.world().entity().child_of(table)
                         .add<Guest>();
-                    table.set<Happiness>({100});
+                    table.set<Happiness>({1});
                 }
             }
         });
@@ -196,7 +196,7 @@ int app(int argc, char *argv[]) {
                 if (chef) {
                     chef.add<Table>(table);
                     chef.add(ChefStatus::Cooking);
-                    table.add(TableStatus::Assigned);
+                    table.add(TableStatus::Waiting);
                 }
             }
 
@@ -372,6 +372,9 @@ int app(int argc, char *argv[]) {
                 if (t->value < PlateTemperatureThreshold) {
                     Happiness *h = table.get_mut<Happiness>();
                     h->value -= ColdPlateHappinessPenalty;
+                    if (h->value < 0) {
+                        h->value = 0; // not good
+                    }
                 }
             }
         });

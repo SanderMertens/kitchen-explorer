@@ -1,0 +1,11 @@
+{
+    "id": "kitchen_explorer",
+    "type": "application",
+    "value": {
+        "use": [
+            "flecs"
+        ],
+        "standalone": true,
+        "language": "c++"
+    }
+}

@@ -5,12 +5,12 @@
 const int TableXCount = 6;
 const int TableYCount = 4;
 const float TableSpacing = 5;
-const int ChefCount = 10;
+const int ChefCount = 8;
 const int WaiterCount = 4;
 const float GuestFrequency = 5; // Hz
 const int GuestPartySize = 5;
 const float PlatePreparationTime = 8.0; // sec
-const float WaiterSpeed = 1.0;
+const float WaiterSpeed = 1.5;
 const float DiningTime = 60.0;
 const float PlateInitialTemperature = 80;
 const float PlateCooldownFactor = 0.01; // deg/sec
@@ -73,12 +73,16 @@ struct Happiness {
     float value;
 };
 
+enum SparseEnum {
+    Black = 1, White = 3, Grey = 5
+};
+
 int app(int argc, char *argv[]) {
     flecs::world ecs(argc, argv);
 
-    ecs.import<flecs::units>();
-
     flecs::log::set_level(0);
+
+    ecs.import<flecs::units>();
     
     auto m = ecs.entity("::kitchen_explorer").add(flecs::Module);
 
@@ -176,8 +180,6 @@ int app(int argc, char *argv[]) {
         .term<TableStatus>(TableStatus::Unassigned)
         .no_staging()
         .iter([](flecs::iter& it) {
-            it.world().defer_end();
-
             auto idle_chefs = it.world().filter_builder()
                 .term<Chef>()
                 .term<ChefStatus>(ChefStatus::Idle)
@@ -194,13 +196,14 @@ int app(int argc, char *argv[]) {
 
                 // Assign chef to table
                 if (chef) {
+                    it.world().defer_suspend();
                     chef.add<Table>(table);
                     chef.add(ChefStatus::Cooking);
+                    it.world().defer_resume();
+
                     table.add(TableStatus::Waiting);
                 }
             }
-
-            it.world().defer_begin();
         });
 
     // Create plate
@@ -261,8 +264,6 @@ int app(int argc, char *argv[]) {
         .term<PlateStatus>(PlateStatus::Ready)
         .no_staging()
         .iter([](flecs::iter& it) {
-            it.world().defer_end();
-
             auto idle_waiters = it.world().filter_builder()
                 .term<Waiter>()
                 .term<WaiterStatus>(WaiterStatus::Idle)
@@ -280,15 +281,15 @@ int app(int argc, char *argv[]) {
                 // Assign waiter to table
                 if (waiter) {
                     flecs::entity table = plate.get_object<Table>();
+                    
+                    it.world().defer_suspend();
                     waiter.add<Table>(table);
-                    plate.add<Waiter>(waiter);
-
-                    // First pick up plate
                     waiter.add(WaiterStatus::WalkingToKitchen);
+                    it.world().defer_resume();
+
+                    plate.add<Waiter>(waiter);
                 }
             }
-
-            it.world().defer_begin();
         });
 
     // Happiness cooldown

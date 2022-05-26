@@ -18,7 +18,7 @@
 #define KITCHEN_EXPLORER_BAKE_CONFIG_H
 
 /* Headers of public dependencies */
-#include "../../deps/flecs.h"
+#include <flecs.h>
 
 #endif
 
